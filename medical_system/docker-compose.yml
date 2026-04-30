@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:15
+    container_name: medical_db
+    restart: always
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: medical_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  app:
+    build: .
+    container_name: medical_app
+    restart: always
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql+asyncpg://user:password@db:5432/medical_db
+      SECRET_KEY: change-me-in-production
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./uploads:/app/uploads
+
+  frontend:
+    build: ../medical_frontend
+    container_name: medical_frontend
+    restart: always
+    depends_on:
+      - app
+    ports:
+      - "3000:80"
+
+volumes:
+  postgres_data:
