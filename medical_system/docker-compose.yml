@@ -21,6 +21,7 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://user:password@db:5432/medical_db
       SECRET_KEY: change-me-in-production
+      GROQ_API_KEY: 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
     ports:
       - "8000:8000"
     volumes:

@@ -5,6 +5,9 @@ from typing import List
 from app.db.session import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
+from app.models.role import RoleEnum
+from app.models.case import Case
+from app.models.patient_profile import PatientProfile
 from app.models.message import Message, MessageTypeEnum
 from app.models.message_attachment import MessageAttachment
 from app.models.case_participant import CaseParticipant
@@ -17,12 +20,28 @@ from app.core.config import settings
 router = APIRouter()
 
 
-async def _check_participant(case_id: int, user_id: int, db: AsyncSession):
-    """Перевіряє що користувач є учасником кейсу. Кидає 403 якщо ні."""
+async def _check_participant(case_id: int, user: User, db: AsyncSession):
+    """Перевіряє доступ до чату. Адмін і терапевт пацієнта мають доступ."""
+    user_roles = {r.name for r in user.roles}
+    if RoleEnum.ADMIN.value in user_roles:
+        return
+    # Терапевт має доступ якщо пацієнт обрав його у профілі
+    if RoleEnum.FAMILY_DOCTOR.value in user_roles:
+        case_res = await db.execute(select(Case).where(Case.id == case_id))
+        case = case_res.scalar_one_or_none()
+        if case:
+            profile_res = await db.execute(
+                select(PatientProfile).where(
+                    PatientProfile.user_id == case.patient_id,
+                    PatientProfile.family_doctor_id == user.id,
+                )
+            )
+            if profile_res.scalar_one_or_none():
+                return
     result = await db.execute(
         select(CaseParticipant).where(
             CaseParticipant.case_id == case_id,
-            CaseParticipant.user_id == user_id,
+            CaseParticipant.user_id == user.id,
         )
     )
     if not result.scalar_one_or_none():
@@ -35,7 +54,7 @@ async def get_messages(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await _check_participant(case_id, current_user.id, db)
+    await _check_participant(case_id, current_user, db)
     repo = MessageRepository(db)
     return await repo.get_by_case(case_id)
 
@@ -47,7 +66,7 @@ async def create_message(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await _check_participant(case_id, current_user.id, db)
+    await _check_participant(case_id, current_user, db)
     repo = MessageRepository(db)
     return await repo.create(case_id, current_user.id, data)
 
@@ -63,7 +82,7 @@ async def get_message(
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
     # перевірка участі у кейсі
-    await _check_participant(msg.case_id, current_user.id, db)
+    await _check_participant(msg.case_id, current_user, db)
     return msg
 
 
@@ -110,7 +129,7 @@ async def add_attachment(
     msg = await repo.get_by_id(message_id)
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
-    await _check_participant(msg.case_id, current_user.id, db)
+    await _check_participant(msg.case_id, current_user, db)
 
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     unique_name = f"{uuid.uuid4()}_{file.filename}"

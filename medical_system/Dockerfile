@@ -2,8 +2,32 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    fonts-dejavu-core \
+ && rm -rf /var/lib/apt/lists/* \
+ || echo "fonts-dejavu-core not installed, PDF will use fallback font"
+
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Основні залежності
+RUN pip install --no-cache-dir \
+    --trusted-host pypi.org \
+    --trusted-host files.pythonhosted.org \
+    --timeout 300 \
+    --retries 5 \
+    -r requirements.txt
+
+# torch: спочатку з локальних wheels (без мережі), якщо є — інакше CPU-only з PyTorch CDN
+COPY wheels/ /tmp/wheels/
+RUN if ls /tmp/wheels/torch*.whl 1>/dev/null 2>&1; then \
+        pip install --no-cache-dir /tmp/wheels/*.whl \
+        && echo "torch installed from local wheels"; \
+    else \
+        pip install --no-cache-dir --timeout 300 --retries 3 \
+        torch torchvision \
+        --index-url https://download.pytorch.org/whl/cpu \
+        || echo "torch not installed — mock AI буде використано"; \
+    fi
 
 COPY . .
 

@@ -1,15 +1,20 @@
 import enum
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Enum as SAEnum, func
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Enum as SAEnum, func, JSON
 from sqlalchemy.orm import relationship
 from app.db.base import Base
 
 
 class CaseStatusEnum(str, enum.Enum):
-    PENDING = "PENDING"       # Запропонований пацієнтом через AI-аналіз, очікує рішення лікаря
+    PENDING = "PENDING"
     OPEN = "OPEN"
     IN_PROGRESS = "IN_PROGRESS"
     COMPLETED = "COMPLETED"
     CLOSED = "CLOSED"
+
+
+class UrgencyEnum(str, enum.Enum):
+    NORMAL = "NORMAL"   # здоровий або невизначене відхилення
+    URGENT = "URGENT"   # виявлена конкретна патологія
 
 
 class Case(Base):
@@ -21,6 +26,12 @@ class Case(Base):
     conclusion = Column(Text, nullable=True)
     patient_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     status = Column(SAEnum(CaseStatusEnum), default=CaseStatusEnum.OPEN)
+    urgency = Column(SAEnum(UrgencyEnum), default=UrgencyEnum.NORMAL, nullable=False)
+    ai_result = Column(JSON, nullable=True)
+    therapist_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    therapist_note = Column(Text, nullable=True)
+
+    therapist = relationship("User", foreign_keys="Case.therapist_id")
     created_at = Column(DateTime, server_default=func.now())
     closed_at = Column(DateTime, nullable=True)
 

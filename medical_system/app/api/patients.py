@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -6,13 +7,52 @@ from typing import List
 from app.db.session import get_db
 from app.core.dependencies import get_current_user, require_role
 from app.models.user import User
-from app.models.role import RoleEnum
+from app.models.role import Role, RoleEnum
+from app.models.user_role import UserRole
 from app.models.patient_profile import PatientProfile
 from app.models.case import Case
 from app.schemas.case import CaseOut
 from app.schemas.user import UserOut
 
+
+class SetDoctorRequest(BaseModel):
+    family_doctor_id: int
+
 router = APIRouter()
+
+
+@router.patch("/my-doctor")
+async def set_my_doctor(
+    data: SetDoctorRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.PATIENT)),
+):
+    """Пацієнт призначає собі терапевта."""
+    res = await db.execute(
+        select(User)
+        .join(UserRole, UserRole.user_id == User.id)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(User.id == data.family_doctor_id, Role.name == RoleEnum.FAMILY_DOCTOR)
+    )
+    doctor = res.scalar_one_or_none()
+    if not doctor:
+        raise HTTPException(404, "Терапевта не знайдено")
+
+    profile_res = await db.execute(
+        select(PatientProfile).where(PatientProfile.user_id == current_user.id)
+    )
+    profile = profile_res.scalar_one_or_none()
+    if not profile:
+        profile = PatientProfile(user_id=current_user.id)
+        db.add(profile)
+
+    profile.family_doctor_id = data.family_doctor_id
+    await db.commit()
+    return {
+        "detail": f"Терапевта призначено: {doctor.first_name} {doctor.last_name}",
+        "family_doctor_id": doctor.id,
+        "therapist_name": f"{doctor.first_name} {doctor.last_name}",
+    }
 
 
 @router.get("/my-doctor")
@@ -25,7 +65,7 @@ async def get_my_doctor(
     )
     profile = result.scalar_one_or_none()
     if not profile or not profile.family_doctor_id:
-        raise HTTPException(status_code=404, detail="No family doctor assigned")
+        raise HTTPException(status_code=404, detail="Терапевта не призначено")
     doctor = await db.get(User, profile.family_doctor_id)
     return doctor
 

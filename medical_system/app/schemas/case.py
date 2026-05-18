@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Any
 from pydantic import BaseModel
-from app.models.case import CaseStatusEnum
+from app.models.case import CaseStatusEnum, UrgencyEnum
 
 
 class CaseCreate(BaseModel):
@@ -40,6 +40,10 @@ class CaseOut(BaseModel):
     conclusion: Optional[str]
     patient_id: int
     status: str
+    urgency: str
+    ai_result: Optional[Any] = None
+    therapist_id: Optional[int] = None
+    therapist_note: Optional[str] = None
     created_at: datetime
     closed_at: Optional[datetime]
 

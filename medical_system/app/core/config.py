@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     UPLOAD_DIR: str = "uploads"
+    GROQ_API_KEY: str = ""
 
     class Config:
         env_file = ".env"

@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.concurrency import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import auth, users, cases, messages, files, patients, radiologists, family_doctors, admin, profiles
-from app.api import ai_analysis
+from app.api import ai_analysis, ai_chat
 from app.core.config import settings
 from app.db.base import Base
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -43,6 +43,7 @@ app.include_router(radiologists.router, prefix="/radiologists", tags=["Radiologi
 app.include_router(family_doctors.router, prefix="/family-doctors", tags=["FamilyDoctors"])
 app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 app.include_router(ai_analysis.router, prefix="/ai", tags=["AI Analysis"])
+app.include_router(ai_chat.router, prefix="", tags=["AI Chat"])
 
 
 @app.get("/")

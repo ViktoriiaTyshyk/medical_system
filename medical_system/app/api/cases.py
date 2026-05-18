@@ -13,9 +13,18 @@ from app.models.file import File as FileModel
 from app.schemas.case import CaseCreate, CaseOut, CaseUpdate, CaseStatusUpdate, CaseConclusionUpdate, ParticipantOut
 from app.repositories.case_repository import CaseRepository
 from app.repositories.user_repository import UserRepository
+from app.core.dependencies import require_role
+from app.models.role import RoleEnum
+from pydantic import BaseModel
+from typing import Optional
 from datetime import datetime
 import os, shutil
 from app.core.config import settings
+
+
+class TherapistNoteUpdate(BaseModel):
+    note: str
+    close_case: bool = True
 
 router = APIRouter()
 
@@ -43,6 +52,9 @@ async def list_cases(
     current_user: User = Depends(get_current_user),
 ):
     repo = CaseRepository(db)
+    user_roles = {r.name for r in current_user.roles}
+    if RoleEnum.ADMIN.value in user_roles:
+        return await repo.get_all()
     return await repo.get_all_for_user(current_user.id)
 
 
@@ -126,6 +138,47 @@ async def sign_case(
     case.status = CaseStatusEnum.COMPLETED
     await db.commit()
     return {"detail": "Case signed and completed"}
+
+
+@router.post("/{case_id}/therapist-note", response_model=CaseOut)
+async def save_therapist_note(
+    case_id: int,
+    data: TherapistNoteUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.FAMILY_DOCTOR, RoleEnum.ADMIN)),
+):
+    """Терапевт або адмін зберігає призначення і за потреби закриває справу."""
+    from app.models.patient_profile import PatientProfile
+    user_roles = {r.name for r in current_user.roles}
+    is_admin = RoleEnum.ADMIN.value in user_roles
+
+    case_res = await db.execute(select(Case).where(Case.id == case_id))
+    case = case_res.scalar_one_or_none()
+    if not case:
+        raise HTTPException(404, "Справу не знайдено")
+
+    if not is_admin:
+        # Дозволяємо якщо явно призначений або є терапевтом пацієнта у профілі
+        if case.therapist_id != current_user.id:
+            prof = await db.execute(
+                select(PatientProfile).where(
+                    PatientProfile.user_id == case.patient_id,
+                    PatientProfile.family_doctor_id == current_user.id,
+                )
+            )
+            if not prof.scalar_one_or_none():
+                raise HTTPException(403, "Ви не є терапевтом цього пацієнта")
+
+    case.therapist_note = data.note
+    if not case.therapist_id:
+        case.therapist_id = current_user.id
+    if data.close_case:
+        case.status = CaseStatusEnum.COMPLETED
+        if not case.closed_at:
+            case.closed_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(case)
+    return case
 
 
 @router.get("/{case_id}/participants", response_model=List[ParticipantOut])
