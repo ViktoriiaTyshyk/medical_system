@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  html { font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
+  body { background: #060c1a; color: #e8f0fe; min-height: 100vh; }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #243354; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #2e3f65; }
+
+  ::selection { background: rgba(79,142,247,0.25); }
+}
+
+@layer utilities {
+  .glass {
+    background: rgba(15, 23, 42, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  .glow-blue { box-shadow: 0 0 0 3px rgba(79,142,247,0.2); }
+  .text-gradient {
+    background: linear-gradient(135deg, #60a5fa, #a78bfa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .border-gradient {
+    border: 1px solid transparent;
+    background-image: linear-gradient(#0f172a, #0f172a),
+      linear-gradient(135deg, #4f8ef7 0%, #7c3aed 100%);
+    background-origin: border-box;
+    background-clip: padding-box, border-box;
+  }
+}
+
+/* Radix overrides */
+[data-radix-popper-content-wrapper] { z-index: 50 !important; }
