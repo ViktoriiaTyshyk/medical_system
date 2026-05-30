@@ -1,0 +1,74 @@
+name: Build & Deploy to Azure
+
+on:
+  push:
+    branches: [master]
+
+env:
+  DOCKER_USER: viktoria17568y
+  RESOURCE_GROUP: med-diploma-rg
+  LOCATION: eastus
+
+jobs:
+  deploy-backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & Push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./medical_system
+          push: true
+          tags: ${{ env.DOCKER_USER }}/med-backend:latest
+
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy backend to Azure Container Apps
+        run: |
+          az containerapp update \
+            --name med-backend \
+            --resource-group $RESOURCE_GROUP \
+            --image docker.io/$DOCKER_USER/med-backend:latest
+
+  deploy-frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    needs: deploy-backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & Push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./medical_frontend
+          push: true
+          tags: ${{ env.DOCKER_USER }}/med-frontend:latest
+
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy frontend to Azure Container Apps
+        run: |
+          az containerapp update \
+            --name med-frontend \
+            --resource-group $RESOURCE_GROUP \
+            --image docker.io/$DOCKER_USER/med-frontend:latest
