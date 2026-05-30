@@ -1,8 +1,35 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
-  <path d="M12 2v4M12 6L9.5 7.5M12 6L14.5 7.5"
-    stroke="#4f8ef7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M9.5 7.5C7 8.5 4.5 11.5 4.5 15C4.5 18 6.5 20.5 9 21C10.5 21.5 12 20.5 12 19.5L12 7.5Z"
-    stroke="#4f8ef7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M14.5 7.5C17 8.5 19.5 11.5 19.5 15C19.5 18 17.5 20.5 15 21C13.5 21.5 12 20.5 12 19.5L12 7.5Z"
-    stroke="#4f8ef7" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1d4ed8"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect width="100" height="100" rx="22" fill="url(#bg)"/>
+  <rect width="100" height="100" rx="22" fill="none" stroke="white" stroke-width="2" stroke-opacity="0.1"/>
+
+  <!-- Trachea -->
+  <line x1="50" y1="8" x2="50" y2="28" stroke="white" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- Left bronchus -->
+  <path d="M50 28 C48 30 44 33 42 37" fill="none" stroke="white" stroke-width="4.5" stroke-linecap="round"/>
+
+  <!-- Right bronchus -->
+  <path d="M50 28 C52 30 56 33 58 37" fill="none" stroke="white" stroke-width="4.5" stroke-linecap="round"/>
+
+  <!-- Left lung -->
+  <path d="M42 37 C32 38 18 48 18 65 C18 82 28 92 40 89 C46 87 48 83 48 78 L48 37 Z"
+        fill="none" stroke="white" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Right lung -->
+  <path d="M58 37 C68 38 82 48 82 65 C82 82 72 92 60 89 C54 87 52 83 52 78 L52 37 Z"
+        fill="none" stroke="white" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Left lobe detail -->
+  <path d="M34 50 C32 57 31 65 33 75" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-opacity="0.55"/>
+
+  <!-- Right lobe detail -->
+  <path d="M66 50 C68 57 69 65 67 75" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-opacity="0.55"/>
 </svg>

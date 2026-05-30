@@ -83,7 +83,7 @@ export function CaseDetail() {
     { key: 'files',      label: 'Файли',          icon: Files,         show: true },
     { key: 'ai-chat',    label: 'AI-асистент',    icon: Bot,           show: c.status !== 'PENDING' },
     { key: 'conclusion', label: 'Висновок',       icon: Stethoscope,   show: (role === 'RADIOLOGIST' || role === 'ADMIN') && c.status !== 'PENDING' && !isClosed },
-    { key: 'treatment',  label: 'Лікування',      icon: ClipboardList, show: (role === 'FAMILY_DOCTOR' || role === 'ADMIN') && !!c.conclusion },
+    { key: 'treatment',  label: 'Лікування',      icon: ClipboardList, show: ((role === 'FAMILY_DOCTOR' || role === 'ADMIN') && !!c.conclusion) || (role === 'PATIENT' && !!c.therapist_note) },
     { key: 'manage',     label: 'Управління',     icon: Settings,      show: role === 'ADMIN' },
   ].filter(t => t.show)
 
@@ -137,7 +137,7 @@ export function CaseDetail() {
         {tab === 'files'      && <FilesTab      c={c} qc={qc} />}
         {tab === 'ai-chat'    && <AiChatTab     c={c} history={aiHistory} setHistory={setAiHistory} />}
         {tab === 'conclusion' && <ConclusionTab c={c} qc={qc} />}
-        {tab === 'treatment'  && <TreatmentTab  c={c} qc={qc} />}
+        {tab === 'treatment'  && <TreatmentTab  c={c} qc={qc} role={role} />}
         {tab === 'manage'     && <ManageTab     c={c} qc={qc} />}
       </div>
     </div>
@@ -186,6 +186,12 @@ function InfoTab({ c, role, qc }: { c: Case; role: string | null; qc: ReturnType
             <div className="border-t border-line pt-4 mt-4">
               <p className="text-[11px] font-bold text-ink-subtle uppercase tracking-wide mb-2">Висновок рентгенолога</p>
               <p className="text-[13px] text-ink whitespace-pre-wrap">{c.conclusion}</p>
+            </div>
+          )}
+          {c.therapist_note && (
+            <div className="border-t border-line pt-4 mt-4">
+              <p className="text-[11px] font-bold text-ink-subtle uppercase tracking-wide mb-2">Призначення терапевта</p>
+              <p className="text-[13px] text-ink whitespace-pre-wrap">{c.therapist_note}</p>
             </div>
           )}
         </CardContent>
@@ -829,11 +835,12 @@ function ConclusionTab({ c, qc }: { c: Case; qc: ReturnType<typeof useQueryClien
 }
 
 // ─── Treatment Tab ────────────────────────────────────────────────────────────
-function TreatmentTab({ c, qc }: { c: Case; qc: ReturnType<typeof useQueryClient> }) {
+function TreatmentTab({ c, qc, role }: { c: Case; qc: ReturnType<typeof useQueryClient>; role: string | null }) {
   const isClosed     = c.status === 'COMPLETED' || c.status === 'CLOSED'
   const hasNote      = !!c.therapist_note
-  // Форма редагування: відкрита якщо кейс не закритий АБО якщо закритий але нотатки ще немає
-  const canEdit      = !isClosed || !hasNote
+  const isDoctor     = role === 'FAMILY_DOCTOR' || role === 'ADMIN'
+  // Форма редагування: тільки для лікаря/адміна, якщо справа не закрита або нотатки ще немає
+  const canEdit      = isDoctor && (!isClosed || !hasNote)
   const [note, setNote]       = useState(c.therapist_note || '')
   const [loading, setLoading] = useState(false)
   const [msg, setMsg]         = useState('')
