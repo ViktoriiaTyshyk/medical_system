@@ -79,3 +79,7 @@ alembic/versions/*.py
 
 # OS
 Thumbs.db
+
+# PyTorch wheels (великі файли, не зберігати в git)
+*.whl
+!medical_system/wheels/.gitkeep
