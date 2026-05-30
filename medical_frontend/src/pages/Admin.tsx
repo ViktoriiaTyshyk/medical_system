@@ -989,41 +989,130 @@ function SpecializationsSection() {
 
 // ── Add User Modal ────────────────────────────────────────────────────────────
 function AddUserModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: () => void }) {
-  const [form, setForm] = useState({ email:'', password:'', first_name:'', last_name:'', role:'PATIENT' })
+  const [form, setForm] = useState({
+    email: '', password: '', first_name: '', last_name: '',
+    phone: '', date_of_birth: '', sex: '', status: 'ACTIVE', role: 'PATIENT',
+  })
+  const [pat, setPat] = useState({
+    blood_type: '', address: '', insurance_number: '',
+    emergency_contact_name: '', emergency_contact_phone: '',
+  })
   const [err, setErr]   = useState('')
   const [loading, setLoading] = useState(false)
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+  const isPatient = form.role === 'PATIENT'
+
+  function reset() {
+    setForm({ email:'', password:'', first_name:'', last_name:'', phone:'', date_of_birth:'', sex:'', status:'ACTIVE', role:'PATIENT' })
+    setPat({ blood_type:'', address:'', insurance_number:'', emergency_contact_name:'', emergency_contact_phone:'' })
+    setErr('')
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setErr(''); setLoading(true)
-    try { await api.adminCreateUser(form); onCreated() }
+    try {
+      await api.adminCreateUser({
+        email: form.email, password: form.password,
+        first_name: form.first_name, last_name: form.last_name,
+        phone: form.phone || undefined,
+        date_of_birth: form.date_of_birth || undefined,
+        sex: form.sex || undefined,
+        status: form.status,
+        roles: [form.role],
+        // Patient profile
+        ...(isPatient && {
+          blood_type: pat.blood_type || undefined,
+          address: pat.address || undefined,
+          insurance_number: pat.insurance_number || undefined,
+          emergency_contact_name: pat.emergency_contact_name || undefined,
+          emergency_contact_phone: pat.emergency_contact_phone || undefined,
+        }),
+      })
+      onCreated(); reset()
+    }
     catch (e: unknown) { setErr(e instanceof Error ? e.message : 'Помилка') }
     finally { setLoading(false) }
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Новий користувач">
+    <Modal open={open} onClose={() => { onClose(); reset() }} title="Новий користувач">
       {err && <Alert variant="error" className="mb-4">{err}</Alert>}
-      <form onSubmit={submit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <FormGroup className="mb-0"><Label>Ім'я</Label><Input value={form.first_name} onChange={e => set('first_name', e.target.value)} required /></FormGroup>
-          <FormGroup className="mb-0"><Label>Прізвище</Label><Input value={form.last_name} onChange={e => set('last_name', e.target.value)} required /></FormGroup>
-        </div>
-        <FormGroup className="mb-0"><Label>Email</Label><Input type="email" value={form.email} onChange={e => set('email', e.target.value)} required /></FormGroup>
-        <FormGroup className="mb-0"><Label>Пароль</Label><Input type="password" value={form.password} onChange={e => set('password', e.target.value)} required /></FormGroup>
-        <FormGroup className="mb-0">
+      <form onSubmit={submit} className="space-y-0">
+
+        {/* Роль */}
+        <FormGroup className="mb-4">
           <Label>Роль</Label>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-4 gap-2">
             {[['PATIENT','Пацієнт'],['RADIOLOGIST','Рентгенолог'],['FAMILY_DOCTOR','Терапевт'],['ADMIN','Адмін']].map(([v,l]) => (
               <button key={v} type="button" onClick={() => set('role', v)}
-                className={`py-2 px-3 rounded-[8px] text-sm font-medium border transition-all ${form.role===v?'border-sky bg-sky/10 text-sky':'border-line bg-panel-50 text-ink-muted hover:bg-panel-100'}`}>
+                className={`py-2 px-2 rounded-[8px] text-[12px] font-medium border transition-all text-center ${form.role===v?'border-sky bg-sky/10 text-sky':'border-line bg-panel-50 text-ink-muted hover:bg-panel-100'}`}>
                 {l}
               </button>
             ))}
           </div>
         </FormGroup>
-        <div className="flex gap-3 justify-end pt-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Скасувати</Button>
+
+        {/* Основна інформація */}
+        <p className="text-[11px] font-bold text-ink-subtle uppercase tracking-wide mb-3 pb-1 border-b border-line">Основна інформація</p>
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <FormGroup className="mb-0"><Label>Ім'я *</Label><Input value={form.first_name} onChange={e => set('first_name', e.target.value)} required /></FormGroup>
+          <FormGroup className="mb-0"><Label>Прізвище *</Label><Input value={form.last_name} onChange={e => set('last_name', e.target.value)} required /></FormGroup>
+        </div>
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <FormGroup className="mb-0"><Label>Email *</Label><Input type="email" value={form.email} onChange={e => set('email', e.target.value)} required /></FormGroup>
+          <FormGroup className="mb-0"><Label>Пароль *</Label><Input type="password" value={form.password} onChange={e => set('password', e.target.value)} required /></FormGroup>
+        </div>
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <FormGroup className="mb-0"><Label>Телефон</Label><Input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="+380..." /></FormGroup>
+          <FormGroup className="mb-0"><Label>Дата народження</Label><Input type="date" value={form.date_of_birth} onChange={e => set('date_of_birth', e.target.value)} /></FormGroup>
+        </div>
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <FormGroup className="mb-0"><Label>Стать</Label>
+            <Select value={form.sex} onChange={v => set('sex', v)}>
+              <option value="">— Не вказано —</option>
+              <option value="MALE">Чоловік</option>
+              <option value="FEMALE">Жінка</option>
+            </Select>
+          </FormGroup>
+          <FormGroup className="mb-0"><Label>Статус</Label>
+            <Select value={form.status} onChange={v => set('status', v)}>
+              <option value="ACTIVE">Активний</option>
+              <option value="INACTIVE">Неактивний</option>
+            </Select>
+          </FormGroup>
+        </div>
+
+        {/* Медичний профіль пацієнта */}
+        {isPatient && (
+          <>
+            <p className="text-[11px] font-bold text-ink-subtle uppercase tracking-wide mb-3 pb-1 border-b border-line">Медичний профіль</p>
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <FormGroup className="mb-0"><Label>Група крові</Label>
+                <Select value={pat.blood_type} onChange={v => setPat(p => ({ ...p, blood_type: v }))}>
+                  <option value="">— Не вказано —</option>
+                  {Object.entries(BLOOD_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </Select>
+              </FormGroup>
+              <FormGroup className="mb-0"><Label>Страховий номер</Label>
+                <Input value={pat.insurance_number} onChange={e => setPat(p => ({ ...p, insurance_number: e.target.value }))} />
+              </FormGroup>
+            </div>
+            <FormGroup className="mb-3"><Label>Адреса</Label>
+              <Input value={pat.address} onChange={e => setPat(p => ({ ...p, address: e.target.value }))} />
+            </FormGroup>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <FormGroup className="mb-0"><Label>Контакт при НС — ім'я</Label>
+                <Input value={pat.emergency_contact_name} onChange={e => setPat(p => ({ ...p, emergency_contact_name: e.target.value }))} />
+              </FormGroup>
+              <FormGroup className="mb-0"><Label>Контакт при НС — тел.</Label>
+                <Input value={pat.emergency_contact_phone} onChange={e => setPat(p => ({ ...p, emergency_contact_phone: e.target.value }))} />
+              </FormGroup>
+            </div>
+          </>
+        )}
+
+        <div className="flex gap-3 justify-end pt-2 border-t border-line">
+          <Button type="button" variant="secondary" onClick={() => { onClose(); reset() }}>Скасувати</Button>
           <Button type="submit" loading={loading}>Створити</Button>
         </div>
       </form>

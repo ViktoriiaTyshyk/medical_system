@@ -47,6 +47,8 @@ export const api = {
   login:    (data: unknown) => req<{ access_token: string; refresh_token: string }>('POST', '/auth/login', data),
   register: (data: unknown) => req<{ access_token: string; refresh_token: string }>('POST', '/auth/register', data),
   logout: (rt: string)      => req('POST', `/auth/logout?refresh_token=${rt}`),
+  forgotPassword: (email: string) => req('POST', '/auth/forgot-password', { email }),
+  resetPassword:  (token: string, new_password: string) => req('POST', '/auth/reset-password', { token, new_password }),
 
   // Me
   getMe:    ()       => req<User>('GET', '/users/me'),

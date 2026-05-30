@@ -6,8 +6,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input, Label, FormGroup } from '@/components/ui/input'
 import { Alert } from '@/components/ui/alert'
+import { Modal } from '@/components/ui/modal'
 import { PageLoader } from '@/components/ui/spinner'
-import { DoctorProfileModal } from '@/components/DoctorProfileModal'
 import type { User, FamilyDoctor } from '@/types'
 
 export function Profile() {
@@ -141,37 +141,83 @@ function RadiologistCard({ me }: { me: User }) {
 }
 
 function PatientCard({ me }: { me: User }) {
-  const { data: profile } = useQuery({ queryKey: ['patient-profile', me.id], queryFn: () => api.getPatientProfile(me.id) })
+  const { data: profile } = useQuery({ queryKey: ['patient-profile', me.id], queryFn: () => api.getPatientProfile(me.id), retry: false })
   const { data: doctor }  = useQuery<User>({ queryKey: ['my-doctor'], queryFn: api.getMyDoctor, retry: false })
-  const [doctors, setDoctors]   = useState<FamilyDoctor[]>([])
-  const [search, setSearch]     = useState('')
-  const [showSearch, setShowSearch] = useState(false)
-  const [viewDoctorId, setViewDoctorId] = useState<number | null>(null)
-  const [msg, setMsg]           = useState('')
+  const [showDoctorModal, setShowDoctorModal] = useState(false)
+  const [doctors, setDoctors]     = useState<FamilyDoctor[]>([])
+  const [allDoctors, setAllDoctors] = useState<FamilyDoctor[]>([])
+  const [search, setSearch]       = useState('')
+  const [doctorsLoading, setDoctorsLoading] = useState(false)
+  const [selectedDoctorId, setSelectedDoctorId] = useState<number | null>(null)
+  const [doctorMsg, setDoctorMsg] = useState('')
+  const [profileMsg, setProfileMsg] = useState('')
   const [err, setErr]           = useState('')
+  const [saving, setSaving]     = useState(false)
   const qc = useQueryClient()
 
   const p = (profile as Record<string, string | null | undefined>) || {}
 
-  async function searchDoctors(q: string) {
-    const r = await api.listFamilyDoctors(q).catch(() => [])
+  const [medForm, setMedForm] = useState({
+    medical_record_number: '',
+    insurance_number: '',
+    address: '',
+    blood_type: '',
+  })
+
+  async function openDoctorModal() {
+    setShowDoctorModal(true)
+    setSearch('')
+    setSelectedDoctorId(null)
+
+    const CACHE_KEY = 'family_doctors_cache'
+    const cached = sessionStorage.getItem(CACHE_KEY)
+    if (cached) {
+      const list = JSON.parse(cached) as FamilyDoctor[]
+      if (list.length > 0) {
+        setAllDoctors(list)
+        setDoctors(list)
+        return
+      }
+    }
+
+    setDoctorsLoading(true)
+    const r = await api.listFamilyDoctors('').catch(() => [])
+    if (r.length > 0) sessionStorage.setItem(CACHE_KEY, JSON.stringify(r))
+    setAllDoctors(r)
     setDoctors(r)
+    setDoctorsLoading(false)
   }
-  async function selectDoctor(id: number) {
-    await api.setMyDoctor(id)
+
+  function filterDoctors(q: string) {
+    setSearch(q)
+    const term = q.toLowerCase()
+    setDoctors(
+      allDoctors.filter(d =>
+        `${d.first_name} ${d.last_name}`.toLowerCase().includes(term) ||
+        d.email.toLowerCase().includes(term)
+      )
+    )
+  }
+
+  async function confirmDoctor() {
+    if (!selectedDoctorId) return
+    setSaving(true)
+    await api.setMyDoctor(selectedDoctorId)
     qc.invalidateQueries({ queryKey: ['my-doctor'] })
-    setShowSearch(false); setMsg('Терапевта призначено!')
+    setShowDoctorModal(false)
+    setDoctorMsg('Терапевта призначено!')
+    setSaving(false)
   }
 
   async function savePatient() {
     const data = {
-      medical_record_number: (document.getElementById('mrn') as HTMLInputElement)?.value || undefined,
-      insurance_number: (document.getElementById('ins') as HTMLInputElement)?.value || undefined,
-      address: (document.getElementById('addr') as HTMLInputElement)?.value || undefined,
-      blood_type: (document.getElementById('blood') as HTMLSelectElement)?.value || undefined,
+      medical_record_number: medForm.medical_record_number || undefined,
+      insurance_number: medForm.insurance_number || undefined,
+      address: medForm.address || undefined,
+      blood_type: medForm.blood_type || undefined,
     }
     await api.updatePatientProfile(me.id, data).catch(e => setErr(e.message))
-    setMsg('Профіль збережено!')
+    setProfileMsg('Профіль збережено!')
   }
 
   return (
@@ -180,7 +226,7 @@ function PatientCard({ me }: { me: User }) {
       <Card>
         <CardHeader><CardTitle>Мій терапевт</CardTitle></CardHeader>
         <CardContent className="pt-0">
-          {msg && <Alert variant="success" className="mb-4">{msg}</Alert>}
+          {doctorMsg && <Alert variant="success" className="mb-4">{doctorMsg}</Alert>}
           <p className="text-[13px] text-ink-muted mb-4">
             Терапевт автоматично отримуватиме доступ до ваших справ після висновку рентгенолога.
           </p>
@@ -190,70 +236,89 @@ function PatientCard({ me }: { me: User }) {
                 <p className="font-semibold text-ink">✓ {doctor.first_name} {doctor.last_name}</p>
                 <p className="text-[12px] text-ink-muted">{doctor.email}</p>
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="ghost" onClick={() => setViewDoctorId(doctor.id)}>Профіль</Button>
-                <Button size="sm" variant="secondary" onClick={() => setShowSearch(true)}>Змінити</Button>
-              </div>
+              <Button size="sm" variant="secondary" onClick={openDoctorModal}>Змінити</Button>
             </div>
           ) : (
-            <Button variant="secondary" onClick={() => { setShowSearch(true); searchDoctors('') }}>
+            <Button variant="secondary" onClick={openDoctorModal}>
               Обрати терапевта
             </Button>
-          )}
-          {showSearch && (
-            <div className="mt-4">
-              <Input placeholder="Пошук терапевта..." onChange={e => searchDoctors(e.target.value)} autoFocus />
-              <div className="mt-2 bg-surface border border-line rounded-[8px] overflow-hidden">
-                {doctors.map(d => (
-                  <div key={d.id} className="flex items-center border-b border-line last:border-0 hover:bg-panel-50 transition-colors">
-                    <button type="button" className="flex-1 text-left px-4 py-2.5"
-                      onClick={() => selectDoctor(d.id)}>
-                      <p className="font-medium text-[13px] text-ink">{d.first_name} {d.last_name}</p>
-                      <p className="text-[11px] text-ink-muted">{d.email}</p>
-                    </button>
-                    <button type="button"
-                      className="px-3 py-2.5 text-[11px] text-sky hover:text-sky-dark transition-colors flex-shrink-0"
-                      onClick={() => setViewDoctorId(d.id)}>
-                      Профіль
-                    </button>
-                  </div>
-                ))}
-                {doctors.length === 0 && <p className="px-4 py-3 text-[13px] text-ink-muted">Введіть ім'я для пошуку</p>}
-              </div>
-            </div>
           )}
         </CardContent>
       </Card>
 
-      {viewDoctorId && (
-        <DoctorProfileModal
-          userId={viewDoctorId}
-          doctorRole="FAMILY_DOCTOR"
-          onClose={() => setViewDoctorId(null)}
-        />
-      )}
+      {/* Doctor selection modal */}
+      <Modal open={showDoctorModal} onClose={() => setShowDoctorModal(false)} title="Оберіть терапевта" size="md">
+        <div className="mb-4">
+          <Input
+            placeholder="Пошук за іменем або email..."
+            value={search}
+            onChange={e => filterDoctors(e.target.value)}
+            autoFocus
+          />
+        </div>
+        {doctorsLoading ? (
+          <div className="text-center py-8 text-ink-muted">Завантаження...</div>
+        ) : doctors.length === 0 ? (
+          <div className="text-center py-8 text-ink-muted">Терапевтів не знайдено</div>
+        ) : (
+          <div className="space-y-2 mb-5 max-h-[340px] overflow-y-auto">
+            {doctors.map(d => {
+              const sel = selectedDoctorId === d.id
+              return (
+                <div key={d.id}
+                  className={`w-full flex items-center gap-2 p-3 rounded-[10px] border transition-all
+                    ${sel ? 'border-sky bg-sky/8' : 'border-line bg-panel-50'}`}>
+                  <button type="button" className="flex-1 text-left"
+                    onClick={() => setSelectedDoctorId(sel ? null : d.id)}>
+                    <p className="font-semibold text-[14px] text-ink">
+                      {sel && <span className="text-sky mr-1.5">✓</span>}
+                      {d.first_name} {d.last_name}
+                    </p>
+                    <p className="text-[12px] text-ink-muted">
+                      {d.specialization
+                        ? `${d.specialization} · ${d.email}`
+                        : d.email}
+                    </p>
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+        <div className="flex gap-3 justify-end">
+          <Button variant="secondary" onClick={() => setShowDoctorModal(false)}>Скасувати</Button>
+          <Button disabled={!selectedDoctorId} loading={saving} onClick={confirmDoctor}>
+            Призначити
+          </Button>
+        </div>
+      </Modal>
 
       {/* Medical profile */}
       <Card>
         <CardHeader><CardTitle>Медичний профіль</CardTitle></CardHeader>
         <CardContent className="pt-0">
           {err && <Alert variant="error" className="mb-4">{err}</Alert>}
+          {profileMsg && <Alert variant="success" className="mb-4">{profileMsg}</Alert>}
           <div className="grid grid-cols-2 gap-4 mb-4">
             <FormGroup className="mb-0">
               <Label>Номер медкнижки</Label>
-              <Input id="mrn" defaultValue={p.medical_record_number || ''} />
+              <Input value={medForm.medical_record_number || p.medical_record_number || ''}
+                onChange={e => setMedForm(f => ({ ...f, medical_record_number: e.target.value }))} />
             </FormGroup>
             <FormGroup className="mb-0">
               <Label>Страховий номер</Label>
-              <Input id="ins" defaultValue={p.insurance_number || ''} />
+              <Input value={medForm.insurance_number || p.insurance_number || ''}
+                onChange={e => setMedForm(f => ({ ...f, insurance_number: e.target.value }))} />
             </FormGroup>
             <FormGroup className="mb-0">
               <Label>Адреса</Label>
-              <Input id="addr" defaultValue={p.address || ''} />
+              <Input value={medForm.address || p.address || ''}
+                onChange={e => setMedForm(f => ({ ...f, address: e.target.value }))} />
             </FormGroup>
             <FormGroup className="mb-0">
               <Label>Група крові</Label>
-              <select id="blood" defaultValue={p.blood_type || ''}
+              <select value={medForm.blood_type || p.blood_type || ''}
+                onChange={e => setMedForm(f => ({ ...f, blood_type: e.target.value }))}
                 className="w-full rounded-[8px] bg-base-100 border border-line px-3 py-2 text-sm text-ink focus:border-sky focus:ring-2 focus:ring-sky/20 outline-none">
                 <option value="">— обрати —</option>
                 {['A_POS','A_NEG','B_POS','B_NEG','AB_POS','AB_NEG','O_POS','O_NEG'].map(b => (

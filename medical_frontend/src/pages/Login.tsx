@@ -66,6 +66,11 @@ export function Login() {
             <Button type="submit" className="w-full mt-2" size="lg" loading={loading}>
               Увійти
             </Button>
+            <p className="text-center text-sm text-ink-muted mt-1">
+              <Link to="/forgot-password" className="text-sky hover:text-sky-dark transition-colors">
+                Забули пароль?
+              </Link>
+            </p>
           </form>
         </div>
 
