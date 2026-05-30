@@ -10,7 +10,16 @@ class AdminUserCreate(BaseModel):
     first_name: str
     last_name: str
     phone: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    sex: Optional[str] = None
+    status: Optional[str] = None
     roles: List[RoleEnum] = [RoleEnum.PATIENT]
+    # Patient profile fields
+    blood_type: Optional[str] = None
+    address: Optional[str] = None
+    insurance_number: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
 
 
 class AdminUserStatusUpdate(BaseModel):

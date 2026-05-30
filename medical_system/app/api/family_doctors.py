@@ -20,7 +20,6 @@ router = APIRouter()
 async def list_family_doctors(
     q: str = Query("", description="Пошук за іменем"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
 ):
     """Список усіх терапевтів (для направлення рентгенологом)."""
     stmt = (
@@ -48,7 +47,7 @@ async def list_family_doctors(
             "last_name": d.last_name,
             "email": d.email,
             "specialization": (
-                d.family_doctor_profile.specialization if d.family_doctor_profile else None
+                d.family_doctor_profile.clinic_name if d.family_doctor_profile else None
             ),
         }
         for d in doctors

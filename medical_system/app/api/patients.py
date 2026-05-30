@@ -10,7 +10,9 @@ from app.models.user import User
 from app.models.role import Role, RoleEnum
 from app.models.user_role import UserRole
 from app.models.patient_profile import PatientProfile
-from app.models.case import Case
+from app.models.case import Case, CaseStatusEnum
+from app.models.case_participant import CaseParticipant
+from app.models.radiologist_review import RadiologistReview
 from app.schemas.case import CaseOut
 from app.schemas.user import UserOut
 
@@ -67,7 +69,48 @@ async def get_my_doctor(
     if not profile or not profile.family_doctor_id:
         raise HTTPException(status_code=404, detail="Терапевта не призначено")
     doctor = await db.get(User, profile.family_doctor_id)
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Терапевта не знайдено")
     return doctor
+
+
+@router.get("/pending-reviews")
+async def get_pending_reviews(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(RoleEnum.PATIENT)),
+):
+    """Список закритих справ пацієнта, де ще не залишено відгук."""
+    reviewed_ids_res = await db.execute(
+        select(RadiologistReview.case_id).where(RadiologistReview.patient_id == current_user.id)
+    )
+    reviewed_ids = {r for r in reviewed_ids_res.scalars().all()}
+
+    cases_res = await db.execute(
+        select(Case).where(
+            Case.patient_id == current_user.id,
+            Case.status.in_([CaseStatusEnum.COMPLETED, CaseStatusEnum.CLOSED]),
+        )
+    )
+    cases = [c for c in cases_res.scalars().all() if c.id not in reviewed_ids]
+
+    result = []
+    for case in cases:
+        parts_res = await db.execute(
+            select(CaseParticipant).where(CaseParticipant.case_id == case.id)
+        )
+        for part in parts_res.scalars().all():
+            user_res = await db.execute(
+                select(User).options(selectinload(User.roles)).where(User.id == part.user_id)
+            )
+            u = user_res.scalar_one_or_none()
+            if u and any(r.name == RoleEnum.RADIOLOGIST for r in u.roles):
+                result.append({
+                    "case_id":          case.id,
+                    "case_title":       case.title,
+                    "radiologist_id":   u.id,
+                    "radiologist_name": f"{u.first_name} {u.last_name}",
+                })
+    return result
 
 
 @router.get("/my-cases", response_model=List[CaseOut])

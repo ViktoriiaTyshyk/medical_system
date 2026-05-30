@@ -128,17 +128,32 @@ def _mock_heatmap_base64(image_bytes: bytes) -> str:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((224, 224))
         img_arr = np.array(img) / 255.0
 
-        # Псевдо-heatmap: гауссіан у центрі
-        x = np.linspace(-3, 3, 224)
-        y = np.linspace(-3, 3, 224)
+        # Координати в діапазоні [0, 1]
+        x = np.linspace(0, 1, 224)
+        y = np.linspace(0, 1, 224)
         xx, yy = np.meshgrid(x, y)
-        heatmap = np.exp(-(xx**2 + yy**2) / 2.0)
-        heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min())
+
+        # Випадковий центр у зоні легень (не завжди по центру)
+        # Легеневе поле: горизонтально 15-85%, вертикально 20-80%
+        cx = random.uniform(0.15, 0.85)
+        cy = random.uniform(0.20, 0.75)
+        sigma = random.uniform(0.10, 0.20)
+        heatmap = np.exp(-((xx - cx)**2 + (yy - cy)**2) / (2 * sigma**2))
+
+        # Іноді додаємо другий осередок (двостороннє ураження)
+        if random.random() > 0.45:
+            cx2 = max(0.1, min(0.9, (1.0 - cx) + random.uniform(-0.12, 0.12)))
+            cy2 = cy + random.uniform(-0.12, 0.12)
+            sigma2 = random.uniform(0.08, 0.16)
+            heatmap += random.uniform(0.4, 0.85) * np.exp(
+                -((xx - cx2)**2 + (yy - cy2)**2) / (2 * sigma2**2)
+            )
+
+        heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
 
         colormap = cm.get_cmap("jet")
         heatmap_rgb = colormap(heatmap)[:, :, :3]
-        overlay = 0.55 * img_arr + 0.45 * heatmap_rgb
-        overlay = np.clip(overlay, 0, 1)
+        overlay = np.clip(0.55 * img_arr + 0.45 * heatmap_rgb, 0, 1)
 
         buf = io.BytesIO()
         plt.imsave(buf, overlay, format="png")
@@ -209,12 +224,13 @@ def _real_multiclass(image_bytes: bytes) -> tuple[dict[str, float], str]:
 
     # Forward + Grad-CAM
     activations = []
-    gradients = []
+    gradients   = []
 
     def fwd_hook(module, inp, out):
         activations.append(out.detach())
 
     def bwd_hook(module, grad_in, grad_out):
+        # register_full_backward_hook: grad_out[0] — градієнт по виходу шару
         gradients.append(grad_out[0].detach())
 
     # Автоматично знаходимо останній Conv2d
@@ -226,7 +242,8 @@ def _real_multiclass(image_bytes: bytes) -> tuple[dict[str, float], str]:
         raise ValueError("Не знайдено Conv2d у моделі для Grad-CAM")
 
     fh = last_conv.register_forward_hook(fwd_hook)
-    bh = last_conv.register_backward_hook(bwd_hook)
+    # register_full_backward_hook — коректна версія для PyTorch >= 1.9
+    bh = last_conv.register_full_backward_hook(bwd_hook)
 
     tensor_req = tensor.clone().requires_grad_(True)
     output = model(tensor_req)
@@ -249,13 +266,18 @@ def _real_multiclass(image_bytes: bytes) -> tuple[dict[str, float], str]:
 
         grad = gradients[0][0]           # [C, H, W]
         act  = activations[0][0]         # [C, H, W]
-        weights = grad.mean(dim=(1, 2))  # [C]
-        cam = torch.relu((weights[:, None, None] * act).sum(dim=0))
+        weights = grad.mean(dim=(1, 2))  # global average pooling по просторовим осям → [C]
+        cam = torch.relu((weights[:, None, None] * act).sum(dim=0))  # зважена сума → [H, W]
         cam = cam.numpy()
         cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
 
         img_arr = np.array(img.resize((224, 224))) / 255.0
-        cam_resized = np.array(Image.fromarray((cam * 255).astype(np.uint8)).resize((224, 224))) / 255.0
+
+        # Білінійна інтерполяція для плавного ресайзу cam → (224,224)
+        cam_resized = np.array(
+            Image.fromarray((cam * 255).astype(np.uint8)).resize((224, 224), Image.BILINEAR)
+        ) / 255.0
+
         colormap = cm.get_cmap("jet")
         heatmap_rgb = colormap(cam_resized)[:, :, :3]
         overlay = np.clip(0.55 * img_arr + 0.45 * heatmap_rgb, 0, 1)
@@ -339,7 +361,7 @@ def run_pipeline(image_bytes: bytes) -> dict:
             "binary_abnormal": True,
             "binary_prob": binary_prob,
             "stage": "unclassifiable",
-            "urgency": "NORMAL",
+            "urgency": "URGENT",  # є відхилення → завжди терміново
             "top_class": None,
             "top_prob": None,
             "multiclass": multiclass_probs,
@@ -828,7 +850,23 @@ async def list_available_radiologists(
     )
     all_rads = result.scalars().all()
 
+    # Завантажити середній рейтинг для всіх рентгенологів
+    from app.models.radiologist_review import RadiologistReview
+    from sqlalchemy import func as sqlfunc
+    rad_ids = [r.id for r in all_rads]
+    rating_rows = await db.execute(
+        select(
+            RadiologistReview.radiologist_id,
+            sqlfunc.avg(RadiologistReview.rating).label("avg"),
+            sqlfunc.count(RadiologistReview.id).label("cnt"),
+        )
+        .where(RadiologistReview.radiologist_id.in_(rad_ids))
+        .group_by(RadiologistReview.radiologist_id)
+    )
+    ratings = {row.radiologist_id: (round(float(row.avg), 1), row.cnt) for row in rating_rows}
+
     def fmt(r):
+        avg, cnt = ratings.get(r.id, (0.0, 0))
         return {
             "id": r.id,
             "first_name": r.first_name,
@@ -836,6 +874,8 @@ async def list_available_radiologists(
             "department": r.radiologist_profile.department if r.radiologist_profile else None,
             "years_of_experience": r.radiologist_profile.years_of_experience if r.radiologist_profile else None,
             "availability_status": r.radiologist_profile.availability_status if r.radiologist_profile else None,
+            "average_rating": avg,
+            "review_count": cnt,
         }
 
     if urgency == "URGENT":

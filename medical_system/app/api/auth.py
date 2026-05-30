@@ -7,10 +7,18 @@ from app.core.security import verify_password, get_password_hash, create_access_
 from app.models.user import User
 from app.models.role import Role, RoleEnum
 from app.models.refresh_token import RefreshToken
+from app.models.password_reset_token import PasswordResetToken
 from app.schemas.auth import RegisterRequest, LoginRequest, TokenResponse
 from app.core.dependencies import get_current_user
 from datetime import datetime, timedelta
+from pydantic import BaseModel, EmailStr
 import hashlib
+import secrets
+import os
+import smtplib
+import asyncio
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 router = APIRouter()
 
@@ -32,10 +40,11 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     db.add(user)
     await db.flush()
 
-    role_result = await db.execute(select(Role).where(Role.name == data.role))
+    # Реєстрація доступна тільки для пацієнтів
+    role_result = await db.execute(select(Role).where(Role.name == RoleEnum.PATIENT))
     role = role_result.scalar_one_or_none()
     if not role:
-        role = Role(name=data.role)
+        role = Role(name=RoleEnum.PATIENT)
         db.add(role)
         await db.flush()
 
@@ -131,3 +140,100 @@ async def logout(refresh_token: str, db: AsyncSession = Depends(get_db), current
         rt.revoked_at = datetime.utcnow()
         await db.commit()
     return {"detail": "Logged out successfully"}
+
+
+# ── Password reset ────────────────────────────────────────────────────────────
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+def _send_reset_email_sync(to_email: str, reset_link: str) -> None:
+    gmail_user     = os.getenv("GMAIL_USER", "")
+    gmail_password = os.getenv("GMAIL_APP_PASSWORD", "")
+
+    if not gmail_user or not gmail_password:
+        print(f"[RESET LINK] {reset_link}")
+        return
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Відновлення пароля — МедСкан АІ"
+    msg["From"]    = f"МедСкан АІ <{gmail_user}>"
+    msg["To"]      = to_email
+
+    html = f"""
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+      <h2 style="color:#1a56db">МедСкан АІ</h2>
+      <p>Ми отримали запит на відновлення пароля для вашого облікового запису.</p>
+      <p>Натисніть кнопку нижче, щоб встановити новий пароль.
+         Посилання дійсне <strong>1 годину</strong>.</p>
+      <a href="{reset_link}"
+         style="display:inline-block;background:#1a56db;color:#fff;padding:12px 24px;
+                border-radius:8px;text-decoration:none;font-weight:600;margin:16px 0">
+        Відновити пароль
+      </a>
+      <p style="color:#6b7280;font-size:13px">
+        Якщо ви не надсилали цей запит — просто проігноруйте лист.
+      </p>
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0">
+      <p style="color:#9ca3af;font-size:12px">МедСкан АІ — медична інформаційна система</p>
+    </div>
+    """
+    msg.attach(MIMEText(html, "html", "utf-8"))
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(gmail_user, gmail_password)
+        server.sendmail(gmail_user, to_email, msg.as_string())
+
+
+async def _send_reset_email(to_email: str, reset_link: str) -> None:
+    await asyncio.to_thread(_send_reset_email_sync, to_email, reset_link)
+
+
+@router.post("/forgot-password")
+async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.email == data.email))
+    user = result.scalar_one_or_none()
+    # Завжди повертаємо 200 — не розкриваємо чи існує email
+    if not user:
+        return {"detail": "Якщо email зареєстровано, надіслано лист із посиланням."}
+
+    token = secrets.token_urlsafe(32)
+    expires = datetime.utcnow() + timedelta(hours=1)
+    db.add(PasswordResetToken(user_id=user.id, token=token, expires_at=expires))
+    await db.commit()
+
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    reset_link = f"{frontend_url}/reset-password?token={token}"
+    await _send_reset_email(user.email, reset_link)
+
+    return {"detail": "Якщо email зареєстровано, надіслано лист із посиланням."}
+
+
+@router.post("/reset-password")
+async def reset_password(data: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(PasswordResetToken).where(
+            PasswordResetToken.token == data.token,
+            PasswordResetToken.used.is_(False),
+            PasswordResetToken.expires_at > datetime.utcnow(),
+        )
+    )
+    reset_token = result.scalar_one_or_none()
+    if not reset_token:
+        raise HTTPException(status_code=400, detail="Посилання недійсне або вже використане.")
+
+    user = await db.get(User, reset_token.user_id)
+    if not user:
+        raise HTTPException(status_code=400, detail="Користувача не знайдено.")
+
+    user.password_hash = get_password_hash(data.new_password)
+    reset_token.used = True
+    await db.commit()
+
+    return {"detail": "Пароль успішно змінено. Тепер ви можете увійти."}
