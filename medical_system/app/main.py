@@ -50,6 +50,15 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     await _seed_admin(_engine)
     await _engine.dispose()
+
+    # Завантажити XRV autoencoder при старті щоб не чекати при першому запиті
+    try:
+        from app.api.ai_analysis import _get_xrv_ae
+        import asyncio
+        await asyncio.to_thread(_get_xrv_ae)
+    except Exception:
+        pass
+
     yield
 
 

@@ -29,6 +29,11 @@ RUN if ls /tmp/wheels/torch*.whl 1>/dev/null 2>&1; then \
         || echo "torch not installed — mock AI буде використано"; \
     fi
 
+# torchxrayvision встановлюється після torch (залежить від нього)
+RUN pip install --no-cache-dir --timeout 300 --retries 3 \
+    torchxrayvision>=1.0.0 \
+    || echo "torchxrayvision not installed — X-ray validation disabled"
+
 COPY . .
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
