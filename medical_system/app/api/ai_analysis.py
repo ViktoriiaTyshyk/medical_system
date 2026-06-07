@@ -170,7 +170,14 @@ def _mock_heatmap_base64(image_bytes: bytes) -> str:
 
 def _load_model(path: str):
     import torch
-    loaded = torch.load(os.path.abspath(path), map_location="cpu")
+    import numpy as np
+    # PyTorch 2.6+ змінив weights_only=True за замовчуванням.
+    # Додаємо numpy globals до safe list щоб завантажити legacy .pth файли.
+    try:
+        torch.serialization.add_safe_globals([np.dtype, np.ndarray])
+    except AttributeError:
+        pass
+    loaded = torch.load(os.path.abspath(path), map_location="cpu", weights_only=False)
     if hasattr(loaded, "eval"):
         loaded.eval()
         return loaded
@@ -678,10 +685,10 @@ def _validate_xray_content(image_bytes: bytes):
 
     except HTTPException:
         raise
-    except ImportError:
-        logger.warning("torchxrayvision не встановлено — валідація X-ray пропущена")
+    except ImportError as e:
+        logger.error(f"torchxrayvision не встановлено — валідація X-ray пропущена: {e}")
     except Exception as e:
-        logger.warning(f"XRay content validation error (пропущено): {e}")
+        logger.error(f"XRay content validation error (пропущено): {type(e).__name__}: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
