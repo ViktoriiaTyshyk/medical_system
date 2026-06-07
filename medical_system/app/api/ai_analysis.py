@@ -671,7 +671,8 @@ def _validate_xray_content(image_bytes: bytes):
 
         ae = _get_xrv_ae()
         with torch.no_grad():
-            reconstruction = ae(tensor)
+            output = ae(tensor)
+            reconstruction = output["reconstruction"] if isinstance(output, dict) else output
             loss = float(torch.nn.functional.mse_loss(reconstruction, tensor))
 
         logger.info(f"XRay autoencoder reconstruction loss: {loss:.4f}")
