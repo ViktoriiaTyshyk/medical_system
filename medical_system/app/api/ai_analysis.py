@@ -672,7 +672,15 @@ def _validate_xray_content(image_bytes: bytes):
         ae = _get_xrv_ae()
         with torch.no_grad():
             output = ae(tensor)
-            reconstruction = output["reconstruction"] if isinstance(output, dict) else output
+            if isinstance(output, dict):
+                # torchxrayvision ResNetAE повертає словник — ключ залежить від версії
+                recon_key = next((k for k in ("x_recon", "reconstruction", "recon") if k in output), None)
+                if recon_key is None:
+                    logger.error(f"XRay AE output keys: {list(output.keys())}")
+                    return
+                reconstruction = output[recon_key]
+            else:
+                reconstruction = output
             loss = float(torch.nn.functional.mse_loss(reconstruction, tensor))
 
         logger.info(f"XRay autoencoder reconstruction loss: {loss:.4f}")
