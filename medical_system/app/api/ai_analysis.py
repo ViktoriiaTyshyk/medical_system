@@ -625,6 +625,65 @@ def _validate_image(file: UploadFile):
         raise HTTPException(400, "Підтримуються лише зображення (JPEG, PNG, WEBP, BMP, TIFF)")
 
 
+_xrv_ae = None
+
+def _get_xrv_ae():
+    global _xrv_ae
+    if _xrv_ae is None:
+        import torchxrayvision as xrv
+        _xrv_ae = xrv.autoencoders.ResNetAE(weights="101-elastic")
+        _xrv_ae.eval()
+    return _xrv_ae
+
+
+def _validate_xray_content(image_bytes: bytes):
+    """
+    Перевіряє чи зображення є рентгеном легень за допомогою torchxrayvision autoencoder.
+
+    Autoencoder натренований виключно на chest X-ray знімках.
+    Для справжнього рентгену помилка реконструкції низька (< порогу).
+    Для довільних фото (кіт, документ, селфі) — висока.
+    """
+    try:
+        import torch
+        import numpy as np
+        from PIL import Image
+        import torchxrayvision as xrv
+
+        img = Image.open(io.BytesIO(image_bytes)).convert("L")
+        w, h = img.size
+        if w < 64 or h < 64:
+            raise HTTPException(400, f"Зображення надто мале ({w}×{h}). Мінімальний розмір: 64×64 пікселів")
+
+        arr = np.array(img, dtype=np.float32)
+        arr = xrv.datasets.normalize(arr, 255)      # → [-1024, 1024]
+        arr = arr[None, ...]                          # (1, H, W)
+        arr = xrv.datasets.XRayCenterCrop()(arr)
+        arr = xrv.datasets.XRayResizer(224)(arr)
+        tensor = torch.from_numpy(arr).unsqueeze(0)  # (1, 1, 224, 224)
+
+        ae = _get_xrv_ae()
+        with torch.no_grad():
+            reconstruction = ae(tensor)
+            loss = float(torch.nn.functional.mse_loss(reconstruction, tensor))
+
+        logger.info(f"XRay autoencoder reconstruction loss: {loss:.4f}")
+
+        if loss > 0.08:
+            raise HTTPException(
+                400,
+                "Зображення не схоже на рентгенівський знімок легень. "
+                "Будь ласка, завантажте коректний рентген грудної клітки."
+            )
+
+    except HTTPException:
+        raise
+    except ImportError:
+        logger.warning("torchxrayvision не встановлено — валідація X-ray пропущена")
+    except Exception as e:
+        logger.warning(f"XRay content validation error (пропущено): {e}")
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # ЕНДПОЇНТИ
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -642,6 +701,7 @@ async def analyze_lung_image(
     contents = await file.read()
     if len(contents) > 20 * 1024 * 1024:
         raise HTTPException(400, "Файл занадто великий (максимум 20 MB)")
+    _validate_xray_content(contents)
 
     result = run_pipeline(contents)
     return {"filename": file.filename, **result}
@@ -664,6 +724,7 @@ async def save_analysis(
     contents = await file.read()
     if len(contents) > 20 * 1024 * 1024:
         raise HTTPException(400, "Файл занадто великий (максимум 20 MB)")
+    _validate_xray_content(contents)
 
     if analysis_result_json.strip():
         result = json.loads(analysis_result_json)
