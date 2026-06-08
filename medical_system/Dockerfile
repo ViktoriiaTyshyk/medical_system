@@ -29,10 +29,18 @@ RUN if ls /tmp/wheels/torch*.whl 1>/dev/null 2>&1; then \
         || echo "torch not installed — mock AI буде використано"; \
     fi
 
-# torchxrayvision встановлюється після torch (залежить від нього)
+# torchxrayvision та CLIP встановлюються після torch (залежать від нього)
 RUN pip install --no-cache-dir --timeout 300 --retries 3 \
     torchxrayvision>=1.0.0 \
-    || echo "torchxrayvision not installed — X-ray validation disabled"
+    || echo "torchxrayvision not installed"
+
+# Завантажити CLIP-ваги під час збірки образу (не в рантаймі)
+RUN python -c "\
+from transformers import CLIPModel, CLIPProcessor; \
+CLIPModel.from_pretrained('openai/clip-vit-base-patch32'); \
+CLIPProcessor.from_pretrained('openai/clip-vit-base-patch32'); \
+print('CLIP weights cached')" \
+    || echo "CLIP pre-download failed — will download at runtime"
 
 COPY . .
 

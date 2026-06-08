@@ -1,4 +1,7 @@
+import logging
 from fastapi import FastAPI
+
+logger = logging.getLogger(__name__)
 from fastapi.concurrency import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import auth, users, cases, messages, files, patients, radiologists, family_doctors, admin, profiles
@@ -51,13 +54,14 @@ async def lifespan(app: FastAPI):
     await _seed_admin(_engine)
     await _engine.dispose()
 
-    # Завантажити XRV autoencoder при старті щоб не чекати при першому запиті
+    # Завантажити CLIP при старті щоб не чекати при першому запиті
     try:
-        from app.api.ai_analysis import _get_xrv_ae
+        from app.api.ai_analysis import _get_clip
         import asyncio
-        await asyncio.to_thread(_get_xrv_ae)
-    except Exception:
-        pass
+        await asyncio.to_thread(_get_clip)
+        logger.info("CLIP model loaded successfully")
+    except Exception as e:
+        logger.warning(f"CLIP preload failed: {e}")
 
     yield
 
