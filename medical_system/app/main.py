@@ -54,14 +54,20 @@ async def lifespan(app: FastAPI):
     await _seed_admin(_engine)
     await _engine.dispose()
 
-    # Завантажити CLIP при старті щоб не чекати при першому запиті
+    # Завантажити валідаційну модель при старті
+    import asyncio
     try:
         from app.api.ai_analysis import _get_clip
-        import asyncio
         await asyncio.to_thread(_get_clip)
         logger.info("CLIP model loaded successfully")
     except Exception as e:
-        logger.warning(f"CLIP preload failed: {e}")
+        logger.warning(f"CLIP unavailable ({e}), trying torchxrayvision AE...")
+        try:
+            from app.api.ai_analysis import _get_xrv_ae
+            await asyncio.to_thread(_get_xrv_ae)
+            logger.info("torchxrayvision AE loaded successfully")
+        except Exception as e2:
+            logger.warning(f"AE also unavailable: {e2}. X-ray validation disabled.")
 
     yield
 

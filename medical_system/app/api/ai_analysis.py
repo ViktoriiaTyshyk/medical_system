@@ -634,6 +634,8 @@ def _validate_image(file: UploadFile):
 
 _clip_model = None
 _clip_processor = None
+_xrv_ae = None
+
 
 def _get_clip():
     global _clip_model, _clip_processor
@@ -645,10 +647,18 @@ def _get_clip():
     return _clip_model, _clip_processor
 
 
+def _get_xrv_ae():
+    global _xrv_ae
+    if _xrv_ae is None:
+        import torchxrayvision as xrv
+        _xrv_ae = xrv.autoencoders.ResNetAE(weights="101-elastic")
+        _xrv_ae.eval()
+    return _xrv_ae
+
+
 def _validate_xray_content(image_bytes: bytes):
     """
-    Перевіряє чи зображення є рентгенівським знімком легень за допомогою CLIP.
-    CLIP порівнює зображення з текстовими описами і повертає ймовірність відповідності.
+    Валідація рентгену: CLIP (основний) → torchxrayvision AE (резервний).
     """
     try:
         import torch
@@ -659,35 +669,64 @@ def _validate_xray_content(image_bytes: bytes):
         if w < 64 or h < 64:
             raise HTTPException(400, f"Зображення надто мале ({w}×{h}). Мінімальний розмір: 64×64 пікселів")
 
-        model, processor = _get_clip()
+        # ── Спроба 1: CLIP ────────────────────────────────────────────────────
+        try:
+            model, processor = _get_clip()
+            candidates = [
+                "a chest X-ray radiograph showing lungs",
+                "a regular photograph or document",
+            ]
+            inputs = processor(text=candidates, images=img, return_tensors="pt", padding=True)
+            with torch.no_grad():
+                outputs = model(**inputs)
+                probs = outputs.logits_per_image.softmax(dim=1)
+            xray_prob = float(probs[0][0])
+            logger.info(f"CLIP chest X-ray probability: {xray_prob:.4f}")
+            if xray_prob < 0.60:
+                raise HTTPException(
+                    400,
+                    f"Зображення не схоже на рентгенівський знімок легень "
+                    f"(впевненість: {round(xray_prob * 100)}%). "
+                    "Будь ласка, завантажте коректний рентген грудної клітки."
+                )
+            return  # CLIP спрацював — далі не перевіряємо
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"CLIP недоступний, перехід на AE: {e}")
 
-        candidates = [
-            "a chest X-ray radiograph showing lungs",
-            "a regular photograph or document",
-        ]
-        inputs = processor(text=candidates, images=img, return_tensors="pt", padding=True)
+        # ── Спроба 2: torchxrayvision autoencoder (резервний) ─────────────────
+        import numpy as np
+        import torchxrayvision as xrv
 
+        gray = img.convert("L")
+        arr = np.array(gray, dtype=np.float32)
+        arr = xrv.datasets.normalize(arr, 255)
+        arr = arr[None, ...]
+        arr = xrv.datasets.XRayCenterCrop()(arr)
+        arr = xrv.datasets.XRayResizer(224)(arr)
+        tensor = torch.from_numpy(arr).unsqueeze(0)
+
+        ae = _get_xrv_ae()
         with torch.no_grad():
-            outputs = model(**inputs)
-            probs = outputs.logits_per_image.softmax(dim=1)
+            output = ae(tensor)
+            # ключ 'out' підтверджений логами ('z', 'out')
+            reconstruction = output.get("out") or output.get("x_recon") or list(output.values())[-1]
+            loss = float(torch.nn.functional.mse_loss(reconstruction, tensor))
 
-        xray_prob = float(probs[0][0])
-        logger.info(f"CLIP chest X-ray probability: {xray_prob:.4f}")
-
-        if xray_prob < 0.60:
+        logger.info(f"XRay AE reconstruction loss: {loss:.2f}")
+        # Поріг підібраний для діапазону [-1024, 1024]
+        if loss > 300_000:
             raise HTTPException(
                 400,
-                "Зображення не схоже на рентгенівський знімок легень "
-                f"(впевненість: {round(xray_prob * 100)}%). "
+                "Зображення не схоже на рентгенівський знімок легень. "
                 "Будь ласка, завантажте коректний рентген грудної клітки."
             )
 
     except HTTPException:
         raise
-    except ImportError as e:
-        logger.error(f"transformers не встановлено — CLIP валідація пропущена: {e}")
     except Exception as e:
-        logger.error(f"CLIP validation error: {type(e).__name__}: {e}")
+        logger.error(f"XRay validation error: {type(e).__name__}: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
