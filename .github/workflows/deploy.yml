@@ -39,7 +39,8 @@ jobs:
           az containerapp update \
             --name med-backend \
             --resource-group $RESOURCE_GROUP \
-            --image docker.io/$DOCKER_USER/med-backend:latest
+            --image docker.io/$DOCKER_USER/med-backend:latest \
+            --revision-suffix gh${{ github.run_number }}
 
   deploy-frontend:
     name: Frontend
@@ -71,4 +72,5 @@ jobs:
           az containerapp update \
             --name med-frontend \
             --resource-group $RESOURCE_GROUP \
-            --image docker.io/$DOCKER_USER/med-frontend:latest
+            --image docker.io/$DOCKER_USER/med-frontend:latest \
+            --revision-suffix gh${{ github.run_number }}
