@@ -19,8 +19,12 @@ AI-аналіз рентгену легень — двоетапний pipeline.
 === ЩО ПОТРІБНО НАЛАШТУВАТИ ===
   1. Вставити назви 4 патологій у MULTICLASS_NAMES (порядок = порядок виходів моделі)
   2. Покласти .pth файли у app/ml_models/
-  3. Перевірити BINARY_MODEL_OUTPUT_TYPE ('softmax2' або 'sigmoid')
-  4. pip install torch torchvision Pillow matplotlib reportlab
+  3. pip install torch torchvision Pillow matplotlib reportlab
+
+Binary модель (binary_model.pth) — DenseNet-121 (torchvision).
+  Підтримуються: повний pickled об'єкт, "голий" state_dict або
+  checkpoint-словник {model_state_dict, best_thr}. Формат виходу
+  (sigmoid/softmax2) і поріг визначаються автоматично.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -84,10 +88,6 @@ MULTICLASS_DESCRIPTIONS = {
 
 # Клас «Other» та «Невизначено» — вважаються некласифікованими
 UNCLASSIFIABLE_CLASSES = {"Other"}
-
-# 'softmax2' — модель повертає [batch, 2], клас 0 = здоровий, 1 = хворий
-# 'sigmoid'  — модель повертає [batch, 1] або scalar, поріг 0.5
-BINARY_MODEL_OUTPUT_TYPE = "softmax2"
 
 # Поріг для "невизначеного відхилення": якщо жодна патологія < порогу — unclassifiable
 UNCLASSIFIABLE_THRESHOLD = 0.30
@@ -195,24 +195,69 @@ def _get_transforms():
     ])
 
 
+def _get_binary_transforms():
+    import torchvision.transforms as T
+    return T.Compose([
+        T.Grayscale(num_output_channels=3),
+        T.Resize((224, 224)),
+        T.ToTensor(),
+        T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+
+
+def _load_binary_model(path: str):
+    """
+    Завантажує бінарну DenseNet-121 (normal/abnormal) з .pth.
+    Підтримує: повний pickled об'єкт моделі, "голий" state_dict
+    та checkpoint-словник з ключами model_state_dict / best_thr.
+    Повертає (model, threshold).
+    """
+    import torch
+    import torch.nn as nn
+    import numpy as np
+    from torchvision import models
+
+    try:
+        torch.serialization.add_safe_globals([np.dtype, np.ndarray])
+    except AttributeError:
+        pass
+
+    loaded = torch.load(os.path.abspath(path), map_location="cpu", weights_only=False)
+
+    if hasattr(loaded, "eval"):
+        loaded.eval()
+        return loaded, 0.5
+
+    state_dict = loaded.get("model_state_dict", loaded) if isinstance(loaded, dict) else loaded
+    threshold = loaded.get("best_thr", 0.5) if isinstance(loaded, dict) else 0.5
+
+    out_features = state_dict["classifier.weight"].shape[0] if "classifier.weight" in state_dict else 1
+
+    model = models.densenet121(weights=None)
+    num_features = model.classifier.in_features
+    model.classifier = nn.Linear(num_features, out_features)
+    model.load_state_dict(state_dict)
+    model.eval()
+    return model, threshold
+
+
 def _real_binary(image_bytes: bytes) -> tuple[bool, float]:
     import torch
     from PIL import Image
 
-    model = _load_model(BINARY_MODEL_PATH)
+    model, threshold = _load_binary_model(BINARY_MODEL_PATH)
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    tensor = _get_transforms()(img).unsqueeze(0)
+    tensor = _get_binary_transforms()(img).unsqueeze(0)
 
     with torch.no_grad():
         output = model(tensor)
 
-    if BINARY_MODEL_OUTPUT_TYPE == "sigmoid":
+    if output.shape[-1] == 1:
         prob_abnormal = float(torch.sigmoid(output).squeeze())
     else:
-        probs = torch.softmax(output, dim=1)[0]
-        prob_abnormal = float(probs[1])
+        prob_abnormal = float(torch.softmax(output, dim=1)[0][1])
 
-    return prob_abnormal > 0.5, round(prob_abnormal, 4)
+    return prob_abnormal > threshold, round(prob_abnormal, 4)
 
 
 def _real_multiclass(image_bytes: bytes) -> tuple[dict[str, float], str]:

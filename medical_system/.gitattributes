@@ -5,3 +5,4 @@ fourth_model filter=lfs diff=lfs merge=lfs -text
 first_model/** filter=lfs diff=lfs merge=lfs -text
 second_model/** filter=lfs diff=lfs merge=lfs -text
 third_model/** filter=lfs diff=lfs merge=lfs -text
+repo/** filter=lfs diff=lfs merge=lfs -text

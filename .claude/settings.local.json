@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(conda run -n base python -m pytest --version 2>&1)",
+      "PowerShell(python --version 2>&1)",
+      "PowerShell(az containerapp show --name med-db --resource-group $RESOURCE_GROUP --query \"properties.configuration.ingress\" -o json)",
+      "PowerShell(az containerapp show --name med-backend --resource-group $RESOURCE_GROUP --query \"properties.environmentId\" -o tsv)",
+      "PowerShell(az containerapp show --name med-db --resource-group $RESOURCE_GROUP --query \"properties.environmentId\" -o tsv)",
+      "PowerShell($RESOURCE_GROUP = \"med-diploma-rg\")",
+      "PowerShell(az containerapp logs show --name med-db --resource-group $RESOURCE_GROUP --tail 20 2>&1)"
+    ]
+  }
+}
