@@ -253,7 +253,9 @@ def _real_binary(image_bytes: bytes) -> tuple[bool, float]:
         output = model(tensor)
 
     if output.shape[-1] == 1:
-        prob_abnormal = float(torch.sigmoid(output).squeeze())
+        # Тренування через ImageFolder: класи сортуються за алфавітом →
+        # "abnormal"=0, "normal"=1. sigmoid(output) = P(normal), тому P(abnormal) = 1 - sigmoid.
+        prob_abnormal = 1 - float(torch.sigmoid(output).squeeze())
     else:
         prob_abnormal = float(torch.softmax(output, dim=1)[0][1])
 
